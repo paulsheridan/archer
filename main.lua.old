@@ -1,5 +1,6 @@
 local Camera = require "hump.camera"
 local Vector = require "hump.vector"
+local tilt = require "tilt"
 
 -- Player variables
 local player = {
@@ -9,7 +10,7 @@ local player = {
     width = 50,
     height = 100,
     yVelocity = 0,
-    jumpVelocity = -600,
+    jumpVelocity = -800,
     gravity = 800,
     onGround = false
 }
@@ -27,19 +28,17 @@ local cam
 
 -- Ball variables
 local balls = {}
-local throwPrimed = false
+local throwCharge = false
 local throwVelocity = 700
 local previewPoints = {}
 local DeadZone = 0.1
-local fullTiltThreshold = 0.9
-local primedX = nil
-local primedY = nil
 
 -- Gamepad variables
 local gamepad
 
 function love.load()
     cam = Camera(player.x, player.y)
+    tilt:load()
 end
 
 function love.joystickadded(joystick)
@@ -55,6 +54,7 @@ end
 function love.update(dt)
     if gamepad then
         -- Left stick controls movement
+        -- local moveX = gamepad:getAxis(1)
         local moveX = getAxis(gamepad, 1)
         player.x = player.x + moveX * player.speed * dt
 
@@ -64,20 +64,20 @@ function love.update(dt)
             player.onGround = false
         end
 
-        -- -- Right stick controls aiming and throwing
+        -- Right stick controls aiming and throwing
+        -- local aimX = gamepad:getAxis(3)
         local aimX = getAxis(gamepad, 3)
+        -- local aimY = gamepad:getAxis(4)
         local aimY = getAxis(gamepad, 4)
-        local magnitude = math.sqrt(aimX * aimX + aimY * aimY)
 
-        -- Detect if joystick is tilted close to the edge
-        if magnitude >= fullTiltThreshold then
-            primedX = aimX
-            primedY = aimY
-            throwPrimed = true
-            calculateArc(aimX, aimY)
-        elseif magnitude < 0.1 and throwPrimed then
-            throwPrimed = false
-            throw(primedX, primedY)
+        -- Start charging throw if the right stick is moved from center
+        if aimX ~= 0 or aimY ~= 0 then
+            throwCharge = true
+            calculateThrowArc(aimX, aimY)
+        elseif throwCharge then
+            -- If right stick returns to center, throw the ball
+            throwCharge = false
+            throwBall()
         end
     else
         -- Fallback to keyboard movement if no gamepad is connected
@@ -113,20 +113,27 @@ function love.update(dt)
         ball.x = ball.x + ball.xVelocity * dt
         ball.y = ball.y + ball.yVelocity * dt
     end
+    tilt:update()
 end
 
-function throw(aimX, aimY)
-    local direction = Vector(aimX, aimY):normalized()
-    local ball = {
-        x = player.x + player.width / 2,
-        y = player.y + player.height / 2,
-        xVelocity = direction.x * throwVelocity,
-        yVelocity = direction.y * throwVelocity
-    }
-    table.insert(balls, ball)
+function throwBall()
+    local aimX = gamepad:getAxis(3)
+    local aimY = gamepad:getAxis(4)
+
+    -- Only throw if there was a recent aim direction
+    if aimX ~= 0 or aimY ~= 0 then
+        local direction = Vector(aimX, aimY):normalized()
+        local ball = {
+            x = player.x + player.width / 2,
+            y = player.y + player.height / 2,
+            xVelocity = direction.x * throwVelocity,
+            yVelocity = direction.y * throwVelocity
+        }
+        table.insert(balls, ball)
+    end
 end
 
-function calculateArc(aimX, aimY)
+function calculateThrowArc(aimX, aimY)
     previewPoints = {}
     local direction = Vector(aimX, aimY):normalized()
     local initialXVel = direction.x * throwVelocity
@@ -160,7 +167,7 @@ function love.draw()
     end
 
     -- Draw the preview arc if charging
-    if throwPrimed then
+    if throwCharge then
         love.graphics.setColor(0, 1, 0)
         for i = 1, #previewPoints - 1 do
             local p1, p2 = previewPoints[i], previewPoints[i + 1]
@@ -174,6 +181,7 @@ function love.draw()
     -- Instructions
     love.graphics.setColor(1, 1, 1)
     love.graphics.print("Use left stick to move, right stick to aim and throw", 10, 20)
+    tilt:draw()
 end
 
 function getAxis(joystick, axis)
